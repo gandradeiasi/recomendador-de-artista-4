@@ -1,227 +1,166 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Recomendador de Artista</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 2em; }
-    .loading { color: #555; }
-    .error { color: red; }
-    #status { margin-bottom: 1em; font-style: italic; }
-  </style>
+    <title>Análise de Músicas Curtidas</title>
 </head>
 <body>
-  <h1>Recomendador de Artista</h1>
-  <!-- Área para exibir mensagens de status -->
-  <div id="status" class="loading">Iniciando…</div>
-  <div id="output" class="loading">Carregando informações…</div>
+    <button onclick="login()">Login com Spotify</button>
+    <div id="progress"></div>
+    <div id="result"></div>
 
-  <script>
-    // Configurações do Spotify
-    const clientId = 'cdbe0b644b984a6e98839e352d87bb3d';
-    const redirectUri = 'https://gandradeiasi.github.io/recomendador-de-artista-4/';
-    const scopes = 'user-library-read';
+    <script>
+        const clientId = 'cdbe0b644b984a6e98839e352d87bb3d';
+        const redirectUri = 'https://gandradeiasi.github.io/recomendador-de-artista-4/';
+        let accessToken = null;
 
-    // Função para atualizar o status exibido ao usuário
-    function updateStatus(message) {
-      const statusDiv = document.getElementById('status');
-      statusDiv.textContent = message;
-    }
-
-    // Função para extrair token da URL (hash)
-    function getTokenFromUrl() {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      return params.get('access_token');
-    }
-
-    // Se não houver token, redireciona para a autorização do Spotify
-    function redirectToAuth() {
-      const authEndpoint = 'https://accounts.spotify.com/authorize';
-      const url = `${authEndpoint}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=token`;
-      window.location = url;
-    }
-
-    // Função para buscar todas as músicas curtidas (com paginação)
-    async function fetchAllLikedTracks(token) {
-      let tracks = [];
-      let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
-      while (url) {
-        updateStatus(`Consultando API: ${url} — Itens já trazidos: ${tracks.length}`);
-        const response = await fetch(url, {
-          headers: { Authorization: 'Bearer ' + token }
-        });
-        if (!response.ok) {
-          throw new Error('Erro ao buscar músicas curtidas.');
-        }
-        const data = await response.json();
-        tracks = tracks.concat(data.items);
-        url = data.next; // data.next é nulo quando não há mais páginas
-      }
-      return tracks;
-    }
-
-    // Função para buscar dados de artistas em lote (até 50 por requisição)
-    async function fetchArtistsDetails(token, artistIds) {
-      const artists = {};
-      for (let i = 0; i < artistIds.length; i += 50) {
-        const batch = artistIds.slice(i, i + 50);
-        const url = 'https://api.spotify.com/v1/artists?ids=' + batch.join(',');
-        updateStatus(`Consultando API: ${url} — Processando ${i + batch.length} de ${artistIds.length} artistas`);
-        const response = await fetch(url, {
-          headers: { Authorization: 'Bearer ' + token }
-        });
-        if (!response.ok) {
-          throw new Error('Erro ao buscar dados de artistas.');
-        }
-        const data = await response.json();
-        data.artists.forEach(artist => {
-          artists[artist.id] = artist; // inclui artist.genres e artist.name
-        });
-      }
-      return artists;
-    }
-
-    // Método do cotovelo utilizando segunda derivada (curvatura numérica)
-    // Para cada ponto (índice, contagem), calcula a segunda derivada aproximada e seleciona o ponto com maior curvatura
-    function findElbowGenre(sortedGenres) {
-      if (sortedGenres.length < 3) return sortedGenres[0].genre; // Se houver poucos pontos, retorna o de maior contagem
-
-      let maxCurvature = -Infinity;
-      let elbowIndex = 1;
-      for (let i = 1; i < sortedGenres.length - 1; i++) {
-        // Aproximação da segunda derivada: y[i+1] - 2*y[i] + y[i-1]
-        const curvature = Math.abs(sortedGenres[i+1].count - 2 * sortedGenres[i].count + sortedGenres[i-1].count);
-        if (curvature > maxCurvature) {
-          maxCurvature = curvature;
-          elbowIndex = i;
-        }
-      }
-      return sortedGenres[elbowIndex].genre;
-    }
-
-    // Função para escolher aleatoriamente entre artistas empatados
-    function escolherAleatoriamente(artistas) {
-      const idx = Math.floor(Math.random() * artistas.length);
-      return artistas[idx];
-    }
-
-    async function run() {
-      const outputDiv = document.getElementById('output');
-      const token = getTokenFromUrl();
-
-      if (!token) {
-        redirectToAuth();
-        return;
-      }
-
-      try {
-        updateStatus('Buscando suas músicas curtidas…');
-        const likedTracks = await fetchAllLikedTracks(token);
-
-        if (likedTracks.length === 0) {
-          outputDiv.textContent = 'Você não possui músicas curtidas.';
-          updateStatus('Concluído.');
-          return;
+        function login() {
+            const scopes = ['user-library-read'];
+            const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes.join('%20')}&response_type=token&show_dialog=true`;
+            window.location.href = authUrl;
         }
 
-        // Mapeamento: id do artista -> { name, genres, count }
-        const artistaMap = {};
+        function updateProgress(text) {
+            document.getElementById('progress').innerHTML = text;
+        }
 
-        // Coleta dos IDs únicos de artistas (pode haver repetição nas músicas)
-        const artistIdSet = new Set();
-        likedTracks.forEach(item => {
-          const track = item.track;
-          track.artists.forEach(artist => {
-            artistIdSet.add(artist.id);
-          });
-        });
-        const artistIds = Array.from(artistIdSet);
+        function getAccessToken() {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            return params.get('access_token');
+        }
 
-        updateStatus(`Buscando detalhes de ${artistIds.length} artistas…`);
-        // Busca detalhes dos artistas (incluindo os gêneros)
-        const artistsDetails = await fetchArtistsDetails(token, artistIds);
+        async function fetchAllLikedTracks(token) {
+            let tracks = [];
+            let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
+            
+            while (url) {
+                const response = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                tracks = tracks.concat(data.items);
+                updateProgress(`Carregando músicas curtidas: ${tracks.length} itens...`);
+                url = data.next;
+            }
+            return tracks;
+        }
 
-        // Inicializa o mapeamento de artistas
-        artistIds.forEach(id => {
-          if (artistsDetails[id]) {
-            artistaMap[id] = {
-              name: artistsDetails[id].name,
-              genres: artistsDetails[id].genres, // array de strings
-              count: 0  // será incrementado para cada aparição na playlist
-            };
-          }
-        });
+        async function fetchArtistsDetails(token, artistIds) {
+            const artistMap = {};
+            for (let i = 0; i < artistIds.length; i += 50) {
+                const batch = artistIds.slice(i, i + 50);
+                const response = await fetch(`https://api.spotify.com/v1/artists?ids=${batch.join(',')}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                data.artists.forEach(artist => {
+                    artistMap[artist.id] = {
+                        name: artist.name,
+                        genres: artist.genres
+                    };
+                });
+                updateProgress(`Carregando detalhes de artistas: ${Object.keys(artistMap).length} itens...`);
+            }
+            return artistMap;
+        }
 
-        // Mapeamento de gênero -> contagem
-        const generoMap = {};
-
-        // Para cada música curtida, contabiliza para cada artista
-        likedTracks.forEach(item => {
-          const track = item.track;
-          track.artists.forEach(artist => {
-            const artistData = artistaMap[artist.id];
-            if (!artistData) return;
-            // Incrementa a contagem do artista
-            artistData.count += 1;
-            // Para cada gênero do artista, incrementa no mapeamento de gêneros
-            artistData.genres.forEach(genero => {
-              generoMap[genero] = (generoMap[genero] || 0) + 1;
+        function calculateGenreCounts(tracks, artistMap) {
+            const genreCounts = {};
+            
+            tracks.forEach(track => {
+                const genres = new Set();
+                track.track.artists.forEach(artist => {
+                    const artistGenres = artistMap[artist.id]?.genres || [];
+                    artistGenres.forEach(genre => genres.add(genre));
+                });
+                genres.forEach(genre => {
+                    genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+                });
             });
-          });
-        });
-
-        // Cria um array de { genre, count } e ordena em ordem decrescente
-        const sortedGeneros = Object.entries(generoMap)
-          .map(([genre, count]) => ({ genre, count }))
-          .sort((a, b) => b.count - a.count);
-
-        if (sortedGeneros.length === 0) {
-          outputDiv.textContent = 'Nenhum gênero encontrado nas músicas curtidas.';
-          updateStatus('Concluído.');
-          return;
+            
+            return genreCounts;
         }
 
-        // Identifica o gênero do "cotovelo da curva" utilizando a segunda derivada
-        const generoElbow = findElbowGenre(sortedGeneros);
+        function findElbowGenre(genreCounts) {
+            const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+            const values = sortedGenres.map(g => g[1]);
 
-        // Entre os artistas que possuem esse gênero, encontra aquele com mais aparições
-        const candidatos = Object.values(artistaMap).filter(artista =>
-          artista.genres.includes(generoElbow)
-        );
+            if (values.length <= 1) return sortedGenres[0]?.[0];
 
-        if (candidatos.length === 0) {
-          outputDiv.textContent = 'Nenhum artista encontrado para o gênero identificado.';
-          updateStatus('Concluído.');
-          return;
+            const firstDerivative = [];
+            for (let i = 1; i < values.length; i++) {
+                firstDerivative.push(values[i] - values[i - 1]);
+            }
+
+            const secondDerivative = [];
+            for (let i = 1; i < firstDerivative.length; i++) {
+                secondDerivative.push(firstDerivative[i] - firstDerivative[i - 1]);
+            }
+
+            let minIndex = 0;
+            for (let i = 1; i < secondDerivative.length; i++) {
+                if (secondDerivative[i] < secondDerivative[minIndex]) {
+                    minIndex = i;
+                }
+            }
+
+            return sortedGenres[minIndex + 1][0];
         }
 
-        // Encontra o(s) artista(s) com a contagem máxima
-        const maxCount = Math.max(...candidatos.map(a => a.count));
-        const topArtistas = candidatos.filter(a => a.count === maxCount);
-        const artistaSelecionado = topArtistas.length > 1 ? escolherAleatoriamente(topArtistas) : topArtistas[0];
+        function findTopArtist(tracks, artistMap, elbowGenre) {
+            const artistCounts = {};
 
-        // Exibe os resultados
-        outputDiv.innerHTML = `
-          <p><strong>Gênero do cotovelo da curva:</strong> ${generoElbow}</p>
-          <p><strong>Artista recomendado:</strong> ${artistaSelecionado.name}</p>
-          <p><em>(Contagem de aparições: ${artistaSelecionado.count})</em></p>
-          <hr>
-          <h3>Ranking de gêneros (top 10):</h3>
-          <ol>
-            ${sortedGeneros.slice(0,10).map(item => `<li>${item.genre} — ${item.count}</li>`).join('')}
-          </ol>
-        `;
-        updateStatus('Concluído.');
-      } catch (err) {
-        console.error(err);
-        outputDiv.innerHTML = `<p class="error">Ocorreu um erro: ${err.message}</p>`;
-        updateStatus('Erro.');
-      }
-    }
+            tracks.forEach(track => {
+                const hasGenre = track.track.artists.some(artist => 
+                    artistMap[artist.id]?.genres?.includes(elbowGenre)
+                );
 
-    // Inicia o script após o carregamento da página
-    run();
-  </script>
-</body>
-</html>
+                if (hasGenre) {
+                    track.track.artists.forEach(artist => {
+                        if (artistMap[artist.id]?.genres?.includes(elbowGenre)) {
+                            artistCounts[artist.id] = (artistCounts[artist.id] || 0) + 1;
+                        }
+                    });
+                }
+            });
+
+            let maxCount = 0;
+            let topArtists = [];
+            Object.entries(artistCounts).forEach(([id, count]) => {
+                if (count > maxCount) {
+                    maxCount = count;
+                    topArtists = [id];
+                } else if (count === maxCount) {
+                    topArtists.push(id);
+                }
+            });
+
+            const randomIndex = Math.floor(Math.random() * topArtists.length);
+            return artistMap[topArtists[randomIndex]]?.name || 'Nenhum artista encontrado';
+        }
+
+        async function main() {
+            accessToken = getAccessToken();
+            if (!accessToken) return;
+
+            updateProgress('Carregando dados...');
+            
+            try {
+                // Carregar músicas curtidas
+                const likedTracks = await fetchAllLikedTracks(accessToken);
+                
+                // Extrair IDs de artistas únicos
+                const artistIds = [...new Set(
+                    likedTracks.flatMap(t => t.track.artists.map(a => a.id))
+                )];
+
+                // Carregar detalhes dos artistas
+                const artistMap = await fetchArtistsDetails(accessToken, artistIds);
+
+                // Calcular contagem de gêneros
+                const genreCounts = calculateGenreCounts(likedTracks, artistMap);
+
+                // Encontrar gênero do cotovelo
+                const elbowGenre = findElbowGenre(genreCounts);
+
+                // Encontrar
