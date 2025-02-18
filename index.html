@@ -4,7 +4,7 @@
     <title>Análise de Músicas Curtidas</title>
 </head>
 <body>
-    <button onclick="login()">Login com Spotify</button>
+    <button id="loginBtn">Login com Spotify</button>
     <div id="progress"></div>
     <div id="result"></div>
 
@@ -12,6 +12,11 @@
         const clientId = 'cdbe0b644b984a6e98839e352d87bb3d';
         const redirectUri = 'https://gandradeiasi.github.io/recomendador-de-artista-4/';
         let accessToken = null;
+
+        // Configurar o evento de login após o carregamento do DOM
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loginBtn').addEventListener('click', login);
+        });
 
         function login() {
             const scopes = ['user-library-read'];
