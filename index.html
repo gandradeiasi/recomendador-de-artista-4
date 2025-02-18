@@ -7,10 +7,13 @@
     body { font-family: Arial, sans-serif; margin: 2em; }
     .loading { color: #555; }
     .error { color: red; }
+    #status { margin-bottom: 1em; font-style: italic; }
   </style>
 </head>
 <body>
   <h1>Recomendador de Artista</h1>
+  <!-- Área para exibir mensagens de status -->
+  <div id="status" class="loading">Iniciando…</div>
   <div id="output" class="loading">Carregando informações…</div>
 
   <script>
@@ -18,6 +21,12 @@
     const clientId = 'cdbe0b644b984a6e98839e352d87bb3d';
     const redirectUri = 'https://gandradeiasi.github.io/recomendador-de-artista-4/';
     const scopes = 'user-library-read';
+
+    // Função para atualizar o status exibido ao usuário
+    function updateStatus(message) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = message;
+    }
 
     // Função para extrair token da URL (hash)
     function getTokenFromUrl() {
@@ -38,6 +47,7 @@
       let tracks = [];
       let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
       while (url) {
+        updateStatus(`Consultando API: ${url} — Itens já trazidos: ${tracks.length}`);
         const response = await fetch(url, {
           headers: { Authorization: 'Bearer ' + token }
         });
@@ -57,6 +67,7 @@
       for (let i = 0; i < artistIds.length; i += 50) {
         const batch = artistIds.slice(i, i + 50);
         const url = 'https://api.spotify.com/v1/artists?ids=' + batch.join(',');
+        updateStatus(`Consultando API: ${url} — Processando ${i + batch.length} de ${artistIds.length} artistas`);
         const response = await fetch(url, {
           headers: { Authorization: 'Bearer ' + token }
         });
@@ -71,18 +82,18 @@
       return artists;
     }
 
-    // Função para identificar o "cotovelo da curva"
-    // Recebe um array de objetos { genre, count } ordenado de forma decrescente
+    // Método do cotovelo utilizando segunda derivada (curvatura numérica)
+    // Para cada ponto (índice, contagem), calcula a segunda derivada aproximada e seleciona o ponto com maior curvatura
     function findElbowGenre(sortedGenres) {
-      if (sortedGenres.length === 0) return null;
-      if (sortedGenres.length === 1) return sortedGenres[0].genre;
+      if (sortedGenres.length < 3) return sortedGenres[0].genre; // Se houver poucos pontos, retorna o de maior contagem
 
-      let maxDiff = -1;
-      let elbowIndex = 0;
-      for (let i = 0; i < sortedGenres.length - 1; i++) {
-        const diff = sortedGenres[i].count - sortedGenres[i + 1].count;
-        if (diff > maxDiff) {
-          maxDiff = diff;
+      let maxCurvature = -Infinity;
+      let elbowIndex = 1;
+      for (let i = 1; i < sortedGenres.length - 1; i++) {
+        // Aproximação da segunda derivada: y[i+1] - 2*y[i] + y[i-1]
+        const curvature = Math.abs(sortedGenres[i+1].count - 2 * sortedGenres[i].count + sortedGenres[i-1].count);
+        if (curvature > maxCurvature) {
+          maxCurvature = curvature;
           elbowIndex = i;
         }
       }
@@ -105,11 +116,12 @@
       }
 
       try {
-        outputDiv.textContent = 'Buscando suas músicas curtidas…';
+        updateStatus('Buscando suas músicas curtidas…');
         const likedTracks = await fetchAllLikedTracks(token);
 
         if (likedTracks.length === 0) {
           outputDiv.textContent = 'Você não possui músicas curtidas.';
+          updateStatus('Concluído.');
           return;
         }
 
@@ -126,6 +138,7 @@
         });
         const artistIds = Array.from(artistIdSet);
 
+        updateStatus(`Buscando detalhes de ${artistIds.length} artistas…`);
         // Busca detalhes dos artistas (incluindo os gêneros)
         const artistsDetails = await fetchArtistsDetails(token, artistIds);
 
@@ -165,10 +178,11 @@
 
         if (sortedGeneros.length === 0) {
           outputDiv.textContent = 'Nenhum gênero encontrado nas músicas curtidas.';
+          updateStatus('Concluído.');
           return;
         }
 
-        // Identifica o gênero do "cotovelo da curva"
+        // Identifica o gênero do "cotovelo da curva" utilizando a segunda derivada
         const generoElbow = findElbowGenre(sortedGeneros);
 
         // Entre os artistas que possuem esse gênero, encontra aquele com mais aparições
@@ -178,6 +192,7 @@
 
         if (candidatos.length === 0) {
           outputDiv.textContent = 'Nenhum artista encontrado para o gênero identificado.';
+          updateStatus('Concluído.');
           return;
         }
 
@@ -197,9 +212,11 @@
             ${sortedGeneros.slice(0,10).map(item => `<li>${item.genre} — ${item.count}</li>`).join('')}
           </ol>
         `;
+        updateStatus('Concluído.');
       } catch (err) {
         console.error(err);
         outputDiv.innerHTML = `<p class="error">Ocorreu um erro: ${err.message}</p>`;
+        updateStatus('Erro.');
       }
     }
 
