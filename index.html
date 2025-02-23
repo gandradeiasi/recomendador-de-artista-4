@@ -8,11 +8,13 @@
     .loading { color: #555; }
     .error { color: red; }
     #status { margin-bottom: 1em; font-style: italic; }
+    .artist-list { list-style-type: none; padding: 0; }
+    .artist-item { margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; }
+    .genre-tag { background: #1DB954; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.9em; }
   </style>
 </head>
 <body>
-  <h1>Recomendador de Artista</h1>
-  <!-- Área para exibir mensagens de status -->
+  <h1>Análise de Artistas por Gênero</h1>
   <div id="status" class="loading">Iniciando…</div>
   <div id="output" class="loading">Carregando informações…</div>
 
@@ -22,27 +24,23 @@
     const redirectUri = 'https://gandradeiasi.github.io/recomendador-de-artista-4/';
     const scopes = 'user-library-read';
 
-    // Função para atualizar o status exibido ao usuário
     function updateStatus(message) {
       const statusDiv = document.getElementById('status');
       statusDiv.textContent = message;
     }
 
-    // Função para extrair token da URL (hash)
     function getTokenFromUrl() {
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
       return params.get('access_token');
     }
 
-    // Se não houver token, redireciona para a autorização do Spotify
     function redirectToAuth() {
       const authEndpoint = 'https://accounts.spotify.com/authorize';
       const url = `${authEndpoint}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=token`;
       window.location = url;
     }
 
-    // Função para buscar todas as músicas curtidas (com paginação)
     async function fetchAllLikedTracks(token) {
       let tracks = [];
       let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
@@ -56,12 +54,11 @@
         }
         const data = await response.json();
         tracks = tracks.concat(data.items);
-        url = data.next; // data.next é nulo quando não há mais páginas
+        url = data.next;
       }
       return tracks;
     }
 
-    // Função para buscar dados de artistas em lote (até 50 por requisição)
     async function fetchArtistsDetails(token, artistIds) {
       const artists = {};
       for (let i = 0; i < artistIds.length; i += 50) {
@@ -76,13 +73,12 @@
         }
         const data = await response.json();
         data.artists.forEach(artist => {
-          artists[artist.id] = artist; // inclui artist.genres e artist.name
+          artists[artist.id] = artist;
         });
       }
       return artists;
     }
 
-    // Função para encontrar o índice do cotovelo usando o método fornecido
     function encontrarCotovelo(y) {
       if (y.length < 3) throw new Error("O array deve conter pelo menos 3 pontos.");
       const n = y.length;
@@ -96,18 +92,10 @@
       return distancias.indexOf(Math.max(...distancias));
     }
 
-    // Função que utiliza a função encontrarCotovelo para retornar o gênero correspondente
     function findElbowGenre(sortedGenres) {
-      // Cria o array y com as contagens
       const y = sortedGenres.map(item => item.count);
       const elbowIndex = encontrarCotovelo(y);
       return sortedGenres[elbowIndex].genre;
-    }
-
-    // Função para escolher aleatoriamente entre artistas empatados
-    function escolherAleatoriamente(artistas) {
-      const idx = Math.floor(Math.random() * artistas.length);
-      return artistas[idx];
     }
 
     async function run() {
@@ -129,53 +117,42 @@
           return;
         }
 
-        // Mapeamento: id do artista -> { name, genres, count }
         const artistaMap = {};
-
-        // Coleta dos IDs únicos de artistas (pode haver repetição nas músicas)
         const artistIdSet = new Set();
+        
         likedTracks.forEach(item => {
-          const track = item.track;
-          track.artists.forEach(artist => {
+          item.track.artists.forEach(artist => {
             artistIdSet.add(artist.id);
           });
         });
-        const artistIds = Array.from(artistIdSet);
 
+        const artistIds = Array.from(artistIdSet);
         updateStatus(`Buscando detalhes de ${artistIds.length} artistas…`);
-        // Busca detalhes dos artistas (incluindo os gêneros)
         const artistsDetails = await fetchArtistsDetails(token, artistIds);
 
-        // Inicializa o mapeamento de artistas
         artistIds.forEach(id => {
           if (artistsDetails[id]) {
             artistaMap[id] = {
               name: artistsDetails[id].name,
-              genres: artistsDetails[id].genres, // array de strings
-              count: 0  // será incrementado para cada aparição na playlist
+              genres: artistsDetails[id].genres,
+              count: 0
             };
           }
         });
 
-        // Mapeamento de gênero -> contagem
         const generoMap = {};
 
-        // Para cada música curtida, contabiliza para cada artista
         likedTracks.forEach(item => {
-          const track = item.track;
-          track.artists.forEach(artist => {
+          item.track.artists.forEach(artist => {
             const artistData = artistaMap[artist.id];
             if (!artistData) return;
-            // Incrementa a contagem do artista
             artistData.count += 1;
-            // Para cada gênero do artista, incrementa no mapeamento de gêneros
             artistData.genres.forEach(genero => {
               generoMap[genero] = (generoMap[genero] || 0) + 1;
             });
           });
         });
 
-        // Cria um array de { genre, count } e ordena em ordem decrescente
         const sortedGeneros = Object.entries(generoMap)
           .map(([genre, count]) => ({ genre, count }))
           .sort((a, b) => b.count - a.count);
@@ -186,36 +163,36 @@
           return;
         }
 
-        // Identifica o gênero do "cotovelo da curva" utilizando a função encontrarCotovelo
         const generoElbow = findElbowGenre(sortedGeneros);
+        const artistsDoGenero = Object.values(artistaMap)
+          .filter(artista => artista.genres.includes(generoElbow))
+          .sort((a, b) => b.count - a.count);
 
-        // Entre os artistas que possuem esse gênero, encontra aquele com mais aparições
-        const candidatos = Object.values(artistaMap).filter(artista =>
-          artista.genres.includes(generoElbow)
-        );
-
-        if (candidatos.length === 0) {
+        if (artistsDoGenero.length === 0) {
           outputDiv.textContent = 'Nenhum artista encontrado para o gênero identificado.';
           updateStatus('Concluído.');
           return;
         }
 
-        // Encontra o(s) artista(s) com a contagem máxima
-        const maxCount = Math.max(...candidatos.map(a => a.count));
-        const topArtistas = candidatos.filter(a => a.count === maxCount);
-        const artistaSelecionado = topArtistas.length > 1 ? escolherAleatoriamente(topArtistas) : topArtistas[0];
-
-        // Exibe os resultados
+        // Novo bloco de exibição
         outputDiv.innerHTML = `
-          <p><strong>Gênero do cotovelo da curva:</strong> ${generoElbow}</p>
-          <p><strong>Artista recomendado:</strong> ${artistaSelecionado.name}</p>
-          <p><em>(Contagem de aparições: ${artistaSelecionado.count})</em></p>
+          <h2>Gênero Identificado: <span class="genre-tag">${generoElbow}</span></h2>
+          <h3>Artistas deste gênero (ordenados por músicas salvas):</h3>
+          <ul class="artist-list">
+            ${artistsDoGenero.map(artista => `
+              <li class="artist-item">
+                ${artista.name} 
+                <span style="color: #666; margin-left: 15px;">${artista.count} músicas salvas</span>
+              </li>
+            `).join('')}
+          </ul>
           <hr>
-          <h3>Ranking de gêneros (top 10):</h3>
+          <h3>Ranking Geral de Gêneros (top 10):</h3>
           <ol>
             ${sortedGeneros.slice(0,10).map(item => `<li>${item.genre} — ${item.count}</li>`).join('')}
           </ol>
         `;
+
         updateStatus('Concluído.');
       } catch (err) {
         console.error(err);
@@ -224,7 +201,6 @@
       }
     }
 
-    // Inicia o script após o carregamento da página
     run();
   </script>
 </body>
