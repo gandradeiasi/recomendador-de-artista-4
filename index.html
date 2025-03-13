@@ -11,6 +11,18 @@
     .artist-list { list-style-type: none; padding: 0; }
     .artist-item { margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; }
     .genre-tag { background: #1DB954; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.9em; }
+    .target-info { 
+      background: #f0f8ff; 
+      border-left: 4px solid #4A90E2; 
+      padding: 15px; 
+      margin: 15px 0; 
+      border-radius: 3px;
+    }
+    .target-number {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #4A90E2;
+    }
 
     /* Estilos para o gráfico de barras */
     #barChart {
@@ -44,6 +56,13 @@
       border-left: 1px solid;
       padding-left: 10px;
       color: #333;
+    }
+    .target-line {
+      position: absolute;
+      width: 40px;
+      height: 2px;
+      background-color: #FF5722;
+      z-index: 2;
     }
   </style>
 </head>
@@ -129,7 +148,39 @@
     function findElbowGenre(sortedGenres) {
       const y = sortedGenres.map(item => item.count);
       const elbowIndex = encontrarCotovelo(y);
-      return sortedGenres[elbowIndex].genre;
+      return { 
+        genre: sortedGenres[elbowIndex].genre, 
+        index: elbowIndex,
+        count: sortedGenres[elbowIndex].count
+      };
+    }
+
+    function calculateTargetValue(sortedGenres, elbowInfo) {
+      // Se o cotovelo já é o gênero com maior pontuação, não há para onde crescer
+      if (elbowInfo.index === 0) {
+        return {
+          targetValue: elbowInfo.count,
+          additionalSongs: 0,
+          nextGenre: null,
+          nextGenreCount: null
+        };
+      }
+
+      // Gênero com pontuação maior mais próximo (anterior na lista ordenada)
+      const nextHigherGenre = sortedGenres[elbowInfo.index - 1];
+      
+      // Cálculo da média entre o gênero do cotovelo e o próximo com maior pontuação
+      const targetValue = Math.ceil((elbowInfo.count + nextHigherGenre.count) / 2);
+      
+      // Músicas adicionais necessárias
+      const additionalSongs = targetValue - elbowInfo.count;
+
+      return {
+        targetValue,
+        additionalSongs,
+        nextGenre: nextHigherGenre.genre,
+        nextGenreCount: nextHigherGenre.count
+      };
     }
 
     async function run() {
@@ -197,10 +248,13 @@
           return;
         }
 
-        const generoElbow = findElbowGenre(sortedGeneros);
+        const elbowInfo = findElbowGenre(sortedGeneros);
+        const generoElbow = elbowInfo.genre;
         const artistsDoGenero = Object.values(artistaMap)
           .filter(artista => artista.genres.includes(generoElbow))
           .sort((a, b) => b.count - a.count);
+
+        const targetInfo = calculateTargetValue(sortedGeneros, elbowInfo);
 
         if (artistsDoGenero.length === 0) {
           outputDiv.textContent = 'Nenhum artista encontrado para o gênero identificado.';
@@ -209,8 +263,26 @@
         }
 
         // Bloco de exibição principal
+        let targetInfoHtml = '';
+        if (targetInfo.additionalSongs > 0) {
+          targetInfoHtml = `
+            <div class="target-info">
+              <p>Para atingir a média entre <strong>${generoElbow}</strong> (${elbowInfo.count}) e <strong>${targetInfo.nextGenre}</strong> (${targetInfo.nextGenreCount}), você precisaria adicionar 
+              <span class="target-number">${targetInfo.additionalSongs}</span> músicas desse gênero.</p>
+              <p>Valor alvo: <span class="target-number">${targetInfo.targetValue}</span></p>
+            </div>
+          `;
+        } else if (targetInfo.nextGenre === null) {
+          targetInfoHtml = `
+            <div class="target-info">
+              <p>O gênero <strong>${generoElbow}</strong> já é o mais popular em sua biblioteca!</p>
+            </div>
+          `;
+        }
+
         outputDiv.innerHTML = `
           <h2>Gênero Identificado: <span class="genre-tag">${generoElbow}</span></h2>
+          ${targetInfoHtml}
           <h3>Artistas deste gênero (ordenados por músicas salvas):</h3>
           <ul class="artist-list">
             ${artistsDoGenero.map(artista => `
@@ -231,12 +303,26 @@
         const maxBarHeight = 600; // Altura máxima das barras em pixels
         const maxCount = Math.max(...sortedGeneros.map(item => item.count));
         let chartHtml = '<h3>Gráfico de Gêneros</h3><div id="barChart">';
-        sortedGeneros.forEach(item => {
+        
+        sortedGeneros.forEach((item, index) => {
           const barHeight = (item.count / maxCount) * maxBarHeight;
+          let barContent = '';
+          
           if (item.genre === generoElbow) {
+            // Adicionando a linha do valor alvo no gráfico, se for o gênero do cotovelo
+            if (targetInfo.additionalSongs > 0) {
+              const targetHeight = (targetInfo.targetValue / maxCount) * maxBarHeight;
+              barContent = `
+                <div class="target-line" style="bottom: ${targetHeight}px;"></div>
+                <div class="bar-label">${item.genre} (${item.count})</div>
+              `;
+            } else {
+              barContent = `<div class="bar-label">${item.genre} (${item.count})</div>`;
+            }
+            
             chartHtml += `
               <div class="bar elbow" style="height: ${barHeight}px;">
-                <div class="bar-label">${item.genre} (${item.count})</div>
+                ${barContent}
               </div>
             `;
           } else {
