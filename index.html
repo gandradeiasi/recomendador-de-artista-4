@@ -255,32 +255,52 @@
 
         likedTracks.forEach(item => {
           const processedGenres = new Set(); // Para garantir que cada gênero seja contado apenas uma vez por música
-          item.track.artists.forEach(artist => {
+          const track = item.track;
+          
+          // Mapeamento de gêneros para cada artista da música
+          const artistGenres = {};
+          const artistNames = {};
+          
+          track.artists.forEach(artist => {
             const artistData = artistaMap[artist.id];
             if (!artistData) return;
             artistData.count += 1;
             
-            // Se o artista não tem gêneros, considera como "sem gênero"
-            const genres = artistData.genres.length > 0 ? artistData.genres : ["sem gênero"];
-            
-            genres.forEach(genero => {
-              // Adiciona o gênero ao mapa se ainda não foi contado para esta música
-              if (!processedGenres.has(genero)) {
-                processedGenres.add(genero);
-                generoMap[genero] = (generoMap[genero] || 0) + 1; // Soma 1 ponto para o gênero por música
-                
-                // Rastreia músicas para gêneros com contagem baixa
-                if (generoMap[genero] === 1) {
-                  singleGenreSongs[genero] = {
-                    artist: item.track.artists.map(a => a.name).join(', '),
-                    song: item.track.name
-                  };
-                } else if (generoMap[genero] > 1 && singleGenreSongs[genero]) {
-                  // Remove do registro se o gênero já tem mais de uma música
-                  delete singleGenreSongs[genero];
+            // Armazena os gêneros de cada artista
+            artistGenres[artist.id] = artistData.genres;
+            artistNames[artist.id] = artistData.name;
+          });
+          
+          // Processa cada gênero único
+          const allGenres = new Set();
+          Object.values(artistGenres).forEach(genres => {
+            genres.forEach(genre => allGenres.add(genre));
+          });
+          
+          allGenres.forEach(genero => {
+            if (!processedGenres.has(genero)) {
+              processedGenres.add(genero);
+              generoMap[genero] = (generoMap[genero] || 0) + 1;
+              
+              // Identifica quais artistas pertencem a este gênero específico
+              const artistsOfGenre = [];
+              Object.entries(artistGenres).forEach(([artistId, genres]) => {
+                if (genres.includes(genero)) {
+                  artistsOfGenre.push(artistNames[artistId]);
                 }
+              });
+              
+              // Rastreia músicas para gêneros com contagem baixa
+              if (generoMap[genero] === 1) {
+                singleGenreSongs[genero] = {
+                  artists: artistsOfGenre, // Artistas que pertencem a este gênero
+                  song: track.name
+                };
+              } else if (generoMap[genero] > 1 && singleGenreSongs[genero]) {
+                // Remove do registro se o gênero já tem mais de uma música
+                delete singleGenreSongs[genero];
               }
-            });
+            }
           });
         });
 
@@ -337,7 +357,7 @@
               <div class="single-song-list">
                 ${singleGenresEntries.map(([genre, info]) => `
                   <div class="single-song-item">
-                    <strong>${genre}</strong>: ${info.artist} - ${info.song}
+                    <strong>${genre}</strong>: ${info.artists.join(', ')} - ${info.song}
                   </div>
                 `).join('')}
               </div>
