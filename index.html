@@ -64,6 +64,24 @@
       background-color: #FF5722;
       z-index: 2;
     }
+    
+    /* Estilos para a seção de gêneros com uma música */
+    .single-song-genres {
+      margin-top: 30px;
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 5px;
+    }
+    .single-song-list {
+      max-height: 300px;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+    .single-song-item {
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+    }
   </style>
 </head>
 <body>
@@ -217,15 +235,23 @@
 
         artistIds.forEach(id => {
           if (artistsDetails[id]) {
+            // Adicionando tratamento para artistas sem gênero
+            let genres = artistsDetails[id].genres;
+            if (!genres || genres.length === 0) {
+              genres = ["sem gênero"];
+            }
+            
             artistaMap[id] = {
               name: artistsDetails[id].name,
-              genres: artistsDetails[id].genres,
+              genres: genres,
               count: 0
             };
           }
         });
 
         const generoMap = {};
+        // Novo objeto para rastrear gêneros com apenas uma música
+        const singleGenreSongs = {};
 
         likedTracks.forEach(item => {
           const processedGenres = new Set(); // Para garantir que cada gênero seja contado apenas uma vez por música
@@ -233,11 +259,26 @@
             const artistData = artistaMap[artist.id];
             if (!artistData) return;
             artistData.count += 1;
-            artistData.genres.forEach(genero => {
+            
+            // Se o artista não tem gêneros, considera como "sem gênero"
+            const genres = artistData.genres.length > 0 ? artistData.genres : ["sem gênero"];
+            
+            genres.forEach(genero => {
               // Adiciona o gênero ao mapa se ainda não foi contado para esta música
               if (!processedGenres.has(genero)) {
                 processedGenres.add(genero);
                 generoMap[genero] = (generoMap[genero] || 0) + 1; // Soma 1 ponto para o gênero por música
+                
+                // Rastreia músicas para gêneros com contagem baixa
+                if (generoMap[genero] === 1) {
+                  singleGenreSongs[genero] = {
+                    artist: item.track.artists.map(a => a.name).join(', '),
+                    song: item.track.name
+                  };
+                } else if (generoMap[genero] > 1 && singleGenreSongs[genero]) {
+                  // Remove do registro se o gênero já tem mais de uma música
+                  delete singleGenreSongs[genero];
+                }
               }
             });
           });
@@ -285,6 +326,25 @@
           `;
         }
 
+        // Preparando a seção de gêneros com apenas uma música
+        const singleGenresEntries = Object.entries(singleGenreSongs);
+        let singleGenresHtml = '';
+        
+        if (singleGenresEntries.length > 0) {
+          singleGenresHtml = `
+            <div class="single-song-genres">
+              <h3>Gêneros com apenas uma música salva (${singleGenresEntries.length}):</h3>
+              <div class="single-song-list">
+                ${singleGenresEntries.map(([genre, info]) => `
+                  <div class="single-song-item">
+                    <strong>${genre}</strong>: ${info.artist} - ${info.song}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
         outputDiv.innerHTML = `
           <h2>Gênero Identificado: <span class="genre-tag">${generoElbow}</span></h2>
           ${targetInfoHtml}
@@ -302,6 +362,8 @@
           <ol>
             ${sortedGeneros.slice(0,10).map(item => `<li>${item.genre} — ${item.count}</li>`).join('')}
           </ol>
+          
+          ${singleGenresHtml}
         `;
 
         // Criação do gráfico de barras verticais
